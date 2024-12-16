@@ -10,7 +10,7 @@
 #include "Menu.h"
 
 #include "..\macros.h"
-
+#include "..\Scripting\PTFX.h"
 #include "..\Util\GTAmath.h"
 #include "..\Util\keyboard.h"
 #include "..\Natives\natives2.h"
@@ -22,7 +22,13 @@
 #include "..\Scripting\ModelNames.h" // _vNeonColours
 #include "Routine.h" // (loop_no_clip_toggle, loop_hide_hud)
 #include "Language.h"
-
+#include <pugixml\src\pugixml.hpp>
+#include "..\Util\ExePath.h"
+#include "..\Scripting\Model.h"
+#include "..\Scripting\GTAvehicle.h"
+#include "..\Scripting\GTAped.h"
+#include "..\Util\GTAmath.h"
+#include "..\Submenus\VehicleModShop.h"
 #include <Windows.h>
 #include <utility>
 
@@ -519,6 +525,230 @@ bool Menu::isBinds()
 	UINT8 index2 = menubindsGamepad.second < 50 ? 0 : 2;
 	return bit_controller ? (IS_DISABLED_CONTROL_PRESSED(index1, menubindsGamepad.first) && IS_DISABLED_CONTROL_JUST_PRESSED(index2, menubindsGamepad.second)) : IsKeyJustUp(menubinds); // F8
 }
+
+	int FuncSpawnVehicle_(GTAmodel::Model model, GTAped ped, bool deleteOld, bool warpIntoVehicle)
+	{
+		Vehicle newcar = 0;
+
+		Vector3 oldVelocity;
+		Vector3 Pos1, Pos2;
+		Vehicle oldcar = 0;
+		bool oldcarBool = false;
+		int oldRadioStation = GET_PLAYER_RADIO_STATION_INDEX();
+		bool oldCarOn = true;
+		if (ped.IsInVehicle())
+		{
+			oldcar = ped.CurrentVehicle().GetHandle();
+			oldVelocity = GET_ENTITY_VELOCITY(oldcar);
+			oldCarOn = GET_IS_VEHICLE_ENGINE_RUNNING(oldcar) != 0;
+			oldcarBool = true;
+		}
+
+		//if (_IS_DECORATOR_OF_TYPE("MPBitset", 3))
+		//{
+		//	if (_DOES_DECORATOR_EXIST(PLAYER_ID(), "MPBitset"))
+		//	{
+		//		uVar0 = DECOR_GET_INT(PLAYER_ID(), "MPBitset");
+		//	}
+		//}
+
+		if (model.Load(3000))
+		{
+			if (oldcarBool)
+			{
+				float spacing1 = Model(GET_ENTITY_MODEL(oldcar)).Dim1().y + model.Dim2().y + 1.0f;
+				if(deleteOld)
+					Pos1 = GET_OFFSET_FROM_ENTITY_IN_WORLD_COORDS(oldcar, 0, 0, 0);
+				else
+					Pos1 = GET_OFFSET_FROM_ENTITY_IN_WORLD_COORDS(oldcar, 0, spacing1, 0);
+			}
+			else
+				Pos1 = ped.GetOffsetInWorldCoords(Vector3());
+
+			PTFX::trigger_ptfx_1("proj_xmas_firework", "scr_firework_xmas_burst_rgw", 0, Pos1, Vector3(), 1.0f);
+			//PTFX::trigger_ptfx_1("scr_fbi5a", "scr_fbi5_ped_water_splash", 0, Pos1, Vector3(), 1.5f);
+
+			newcar = CREATE_VEHICLE(model.hash, Pos1.x, Pos1.y, Pos1.z, ped.Heading_get(), 1, 1, 0);
+			//SET_VEHICLE_ENGINE_ON(newcar, oldCarOn, oldCarOn);
+
+			//if (!IS_ENTITY_IN_AIR(ped) && !IS_ENTITY_IN_WATER(ped)) SET_VEHICLE_ON_GROUND_PROPERLY(newcar, 0.0f);
+
+
+			SET_ENTITY_COLLISION(newcar, false, true);
+			SET_ENTITY_ALPHA(newcar, 0, false);
+			SET_VEHICLE_HAS_STRONG_AXLES(newcar, 1);
+			SET_VEHICLE_DIRT_LEVEL(newcar, 0.0f);
+			SET_VEHICLE_ENVEFF_SCALE(newcar, 0.0f);
+			SET_ENTITY_AS_MISSION_ENTITY(newcar, 0, 1); //Fixes the despawning of MP onl;y cars after a couple of secs
+			//	SET_ENTITY_PROOFS(newcar, 1, 1, 1, 1, 1, 1, 1, 1);
+
+			int newnetid = VEH_TO_NET(newcar);
+			Game::RequestControlOfId(newnetid);
+			//SET_NETWORK_ID_CAN_MIGRATE(newnetid, 1);
+			//SET_NETWORK_ID_EXISTS_ON_ALL_MACHINES(newnetid, 1);
+
+			if (oldcarBool && DOES_ENTITY_EXIST(oldcar))
+			{
+				GTAvehicle(newcar).RequestControl();
+				SET_ENTITY_VELOCITY(newcar, oldVelocity.x, oldVelocity.y, oldVelocity.z);
+				if (deleteOld)
+				{
+					FREEZE_ENTITY_POSITION(oldcar, true);
+					SET_ENTITY_COLLISION(oldcar, false, true);
+					SET_ENTITY_ALPHA(oldcar, 0, false);
+				}
+				SET_VEHICLE_ENGINE_ON(newcar, true, true, 0);
+				SET_ENTITY_COLLISION(newcar, true, true);
+				RESET_ENTITY_ALPHA(newcar);
+				if (warpIntoVehicle)
+				{
+					//if (Model(GET_ENTITY_MODEL(oldcar)).IsPlane()) CLEAR_PED_TASKS_IMMEDIATELY(ped); // mainPed
+					int maxi = GET_VEHICLE_MAX_NUMBER_OF_PASSENGERS(newcar);// - 2;
+					for (INT i = -1; i <= maxi; i++)
+					{
+						Ped tempPed = GET_PED_IN_VEHICLE_SEAT(oldcar, i, 0);
+						if (DOES_ENTITY_EXIST(tempPed))
+						{
+							if (GTAentity(tempPed).RequestControl())
+							{
+								//CLEAR_PED_TASKS_IMMEDIATELY(tempPed);
+								SET_PED_INTO_VEHICLE(tempPed, newcar, i);
+							}
+						}
+					}
+				}
+
+				if (deleteOld)
+				{
+					WAIT(0);
+					int maxi = GET_VEHICLE_MAX_NUMBER_OF_PASSENGERS(oldcar);// - 2;
+					for (INT i = -1; i <= maxi; i++)
+					{
+						Ped tempPed = GET_PED_IN_VEHICLE_SEAT(oldcar, i, 0);
+						if (DOES_ENTITY_EXIST(tempPed))
+						{
+							if (GTAentity(tempPed).RequestControl())
+							{
+								TASK_LEAVE_ANY_VEHICLE(tempPed, 0, 0);
+								CLEAR_PED_TASKS_IMMEDIATELY(tempPed);
+							}
+						}
+					}
+					WAIT(0);
+					GTAvehicle(oldcar).RequestControl();
+					SET_ENTITY_AS_MISSION_ENTITY(oldcar, 0, 1);
+					SET_ENTITY_COORDS(oldcar, 32.2653f, 7683.5249f, 0.5696f, 0, 0, 0, 1);
+					DELETE_VEHICLE(&oldcar);
+				}
+			}
+			else
+			{
+				if (warpIntoVehicle)
+					SET_PED_INTO_VEHICLE(ped.Handle(), newcar, (int)GTAvehicle(newcar).FirstFreeSeat(SEAT_DRIVER));
+					SET_ENTITY_COLLISION(newcar, true, true);
+					RESET_ENTITY_ALPHA(newcar);
+			}
+			//SET_VEHICLE_NUMBER_PLATE_TEXT_INDEX(newcar, 5);
+			//SET_VEHICLE_NUMBER_PLATE_TEXT(newcar, "MENYOO");
+
+			GTAvehicle(newcar).RadioStation_set(oldRadioStation);
+			GTAvehicle(newcar).CloseAllDoors(true);
+			//if (IS_VEHICLE_A_CONVERTIBLE(newcar, 0)) LOWER_CONVERTIBLE_ROOF(newcar, 1);
+
+			model.Unload();
+
+			//// Online lock fix
+			//if (!DECORATOR::DECOR_IS_REGISTERED_AS_TYPE("Player_Vehicle", 3))
+			//	DECORATOR::DECOR_REGISTER("Player_Vehicle", 3);
+			//if (!DECORATOR::DECOR_IS_REGISTERED_AS_TYPE("Veh_Modded_By_Player", 3))
+			//	DECORATOR::DECOR_REGISTER("Veh_Modded_By_Player", 3);
+			//if (!DECORATOR::DECOR_IS_REGISTERED_AS_TYPE("Not_Allow_As_Saved_Veh", 3))
+			//	DECORATOR::DECOR_REGISTER("Not_Allow_As_Saved_Veh", 3);
+			//DECORATOR::DECOR_SET_INT(newcar, "Player_Vehicle", NETWORK::_0xBC1D768F2F5D6C05(PLAYER_ID()));
+			//DECORATOR::DECOR_SET_INT(newcar, "Veh_Modded_By_Player", GET_HASH_KEY(GET_PLAYER_NAME(PLAYER_ID())));
+			//DECORATOR::DECOR_SET_INT(newcar, "Not_Allow_As_Saved_Veh", 0);
+			//if (NETWORK::NETWORK_DOES_NETWORK_ID_EXIST(newnetid))
+			//{
+			//	ENTITY::_0x3910051CCECDB00C(newcar, true);
+			//	if (NETWORK::_0xC7827959479DCC78(newcar))
+			//	{
+			//		NETWORK::SET_NETWORK_ID_EXISTS_ON_ALL_MACHINES(newnetid, true);
+			//	}
+			//}
+			SET_VEHICLE_IS_STOLEN(newcar, false);
+		}
+
+		return newcar;
+	}
+
+void Menu::spawnFavVehicle(int sequence) {
+	std::string xmlAddedVehicleModels = "AddedVehicleModels.xml";
+	pugi::xml_document doc;
+	if (doc.load_file((const char*)(GetPathffA(Pathff::Main, true) + xmlAddedVehicleModels).c_str()).status != pugi::status_ok) {
+		doc.reset();
+		auto nodeDecleration = doc.append_child(pugi::node_declaration);
+		nodeDecleration.append_attribute("version") = "1.0";
+		nodeDecleration.append_attribute("encoding") = "ISO-8859-1";
+		auto nodeRoot = doc.append_child("AddedVehicleModels");
+		doc.save_file((const char*)(GetPathffA(Pathff::Main, true) + xmlAddedVehicleModels).c_str());
+		return;
+	}
+	pugi::xml_node nodeRoot = doc.child("AddedVehicleModels");
+
+	Model model;
+	int currentIndex = 0;
+	for (auto nodeLocToLoad = nodeRoot.first_child(); nodeLocToLoad; nodeLocToLoad = nodeLocToLoad.next_sibling()) {
+		if (currentIndex == sequence) {
+			model = nodeLocToLoad.attribute("modelHash").as_uint(0);
+			break;
+		}
+		currentIndex++;
+	}
+
+	// If the sequence index is out of bounds, return
+	if (currentIndex != sequence) {
+		return;
+	}
+
+	Ped ped = Static_241;
+	Vehicle spawnedVehicle = FuncSpawnVehicle_(model, ped, true, true);
+
+	sub::set_vehicle_max_upgrades(spawnedVehicle, _globalSpawnVehicle_autoUpgrade, _globalSpawnVehicle_invincible,
+		_globalSpawnVehicle_plateType, _globalSpawnVehicle_plateTexter_value == 0 ? _globalSpawnVehicle_plateText : "", _globalSpawnVehicle_neonToggle,
+		_globalSpawnVehicle_neonCol.R, _globalSpawnVehicle_neonCol.G, _globalSpawnVehicle_neonCol.B,
+		_globalSpawnVehicle_PrimCol, _globalSpawnVehicle_SecCol);
+}
+
+
+void Menu::while_always(){
+	// Spawn Vehicle Quickly
+	if(IsKeyDown(VirtualKey::Control)){
+		if(IsKeyJustUp(VirtualKey::Numpad0)){
+			spawnFavVehicle(0);
+		} else if(IsKeyJustUp(VirtualKey::Numpad1)){
+			spawnFavVehicle(1);
+		} else if(IsKeyJustUp(VirtualKey::Numpad2)){
+			spawnFavVehicle(2);
+		} else if(IsKeyJustUp(VirtualKey::Numpad3)){
+			spawnFavVehicle(3);
+		} else if(IsKeyJustUp(VirtualKey::Numpad4)){
+			spawnFavVehicle(4);
+		} else if(IsKeyJustUp(VirtualKey::Numpad5)){
+			spawnFavVehicle(5);
+		} else if(IsKeyJustUp(VirtualKey::Numpad6)){
+			spawnFavVehicle(6);
+		} else if(IsKeyJustUp(VirtualKey::Numpad7)){
+			spawnFavVehicle(7);
+		} else if(IsKeyJustUp(VirtualKey::Numpad8)){
+			spawnFavVehicle(8);
+		} else if(IsKeyJustUp(VirtualKey::Numpad9)){
+			spawnFavVehicle(9);
+		}
+	}
+}
+
+
+
 void Menu::while_closed()
 {
 	if (isBinds())

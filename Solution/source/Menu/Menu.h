@@ -178,6 +178,7 @@ public:
 	static void optionhi();
 	static bool isBinds();
 	static void while_closed();
+	static void while_always();
 	static void while_opened();
 	static void Up(bool playSound = true);
 	static void Down(bool playSound = true);
@@ -195,6 +196,8 @@ public:
 	static void add_IB(ScaleformButton button_id, std::string string_val);
 	static std::string get_key_IB(const Scaleform_IbT& ib);
 	static void draw_IB();
+
+    static void spawnFavVehicle(int sequence);
 
 };
 
