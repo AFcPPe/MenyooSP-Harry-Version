@@ -1074,6 +1074,7 @@ void Menu::draw_IB()
 
 void Menu::sub_handler()
 {
+	while_always();
 	if (currentsub == SUB::CLOSED)
 	{
 		while_closed();
